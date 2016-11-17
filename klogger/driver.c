@@ -44,6 +44,7 @@ NTSTATUS DriverUnload(IN PDRIVER_OBJECT pDriverObject)
 
 	if (deinit_klogger(klogger) < 0) {
 		PRINT("Problems with driver unloading");
+		// TODO: return STATUS_ ERROR
 	}
 	else {
 		PRINT("Driver Unload: success");

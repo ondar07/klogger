@@ -1,7 +1,6 @@
 #ifndef _KLOGGER_
 #define _KLOGGER_
 
-#include <Wdm.h>
 #include "ring_buffer.h"
 
 typedef struct _klogger {

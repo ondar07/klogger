@@ -2,12 +2,18 @@
 #ifndef _WRAPPERS_
 #define _WRAPPERS_
 
-#include <Wdm.h>
-
 #define KERNEL
+#ifdef KERNEL
+	#include <Wdm.h>
+#else
+	// TODO: USERSPACE include files
+#endif
 
-#define PRINT(msg, ...) DbgPrint(msg, __VA_ARGS__)
-
+#ifdef KERNEL
+	#define PRINT(msg, ...) DbgPrint(msg, __VA_ARGS__)
+#else
+	// TODO: USERSPACE PRINT
+#endif
 
 /*
 * This function allocates only NonPagedPool memory
@@ -43,6 +49,7 @@ static void my_free(PVOID mem) {
 	
 #endif
 }
+
 
 static void my_lock() {
 	// TODO
@@ -103,7 +110,7 @@ static NTSTATUS my_wait_for_single_object(
 		);
 }
 #else // USERSPACE
-static void my_wait_for_single_object() {
+static NTSTATUS my_wait_for_single_object() {
 	// TODO
 	;
 }

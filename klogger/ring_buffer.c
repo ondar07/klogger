@@ -11,6 +11,10 @@
 #define MB (KB * 1024)
 #define BUF_SIZE (1 * MB)
 
+#define GET_VALUE_ATOMICALLY(pval) InterlockedOr(pval, 0)
+
+static NTSTATUS init_writers_count_parameter(rbuf_t *rbuf);
+static void deinit_writers_count_parameter(rbuf_t *rbuf);
 
 rbuf_t *init_ring_buffer() {
 	rbuf_t *rbuf = NULL;
@@ -25,32 +29,74 @@ rbuf_t *init_ring_buffer() {
 	rbuf->start = (PVOID)my_alloc(sizeof(TCHAR) * BUF_SIZE);
 	if (NULL == rbuf->start) {
 		PRINT("ERROR [init_ring_buffer]: rbuf == NULL");
-		my_free(rbuf);
-		return NULL;
+		goto free_rbuf;
 	}
 
-	// TODO: writers_count MUST be 0!!!
-	// rbuf->writers_count = 0;
+	if (init_writers_count_parameter(rbuf) < 0) {
+		PRINT("ERROR [init_ring_buffer]: cannot init writers_count parameter");
+		goto free_buffer;
+	}
 
 	// fill buf with zero bytes
 	memset(rbuf->start, 0, sizeof(TCHAR) * BUF_SIZE);
 
 	PRINT("[init_ring_buffer]: init_ring_buffer is successful...");
 	return rbuf;
+
+free_buffer:
+	my_free(rbuf->start);
+free_rbuf:
+	my_free(rbuf);
+
+	return NULL;
 }
+
+static int init_writers_count_parameter(rbuf_t *rbuf) {
+#ifdef KERNEL
+	if (NULL == my_alloc(rbuf->start)) {
+		PRINT("ERROR [init_writers_count_parameter]: writers_count == NULL");
+		return -1;
+	}
+	rbuf->writers_count = 0;
+#else
+	// TODO: USERSPACE
+	// The variable pointed to by the 'writers_count' parameter must be aligned on a 32 - bit boundary
+	// otherwise, this function will behave unpredictably on multiprocessor x86 systems and any non-x86 systems
+	// See _aligned_malloc.
+#endif
+
+	return 0;
+}
+
+static void deinit_writers_count_parameter(rbuf_t *rbuf) {
+#ifdef KERNEL
+	if ((!rbuf) || (!rbuf->writers_count)) {
+		PRINT("ERROR [deinit_writers_count_parameter]: critical error");
+		return;
+	}
+	my_free(rbuf->writers_count);
+#else
+	// TODO: USERSPACE
+#endif
+}
+
 
 void deinit_ring_buffer(rbuf_t *rbuf) {
 	if (!rbuf)
 		return;
 	if (NULL != rbuf->start) {
-		// TODO:
-		// check if all flushing is done already
 
-		// after that
-		PRINT("[deinit_ring_buffer]: free rbuf->start");
+		// 1. wait until all writers finish work with buffer
+		while( GET_VALUE_ATOMICALLY(rbuf->writers_count) != 0 )
+			;
+
+		// 2. now we can free buffer safely
+		PRINT("INFO [deinit_ring_buffer]: free rbuf->start");
 		my_free(rbuf->start);
 	}
-	PRINT("[deinit_ring_buffer]: free rbuf");
+	PRINT("INFO [deinit_ring_buffer]: free rbuf->writers_count");
+	deinit_writers_count_parameter(rbuf);
+	PRINT("INFO [deinit_ring_buffer]: free rbuf");
 	my_free(rbuf);
 }
 

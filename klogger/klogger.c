@@ -129,7 +129,7 @@ int add_to_rbuf(TCHAR *str) {
 	int status;
 	
 	// 0.
-	if (klogger->exit_now) {
+	if ((!klogger) || klogger->exit_now) {
 		// writers can not write anymore
 		return -1;
 	}
