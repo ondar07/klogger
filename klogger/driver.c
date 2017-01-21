@@ -15,8 +15,15 @@
 
 #define STDCALL __stdcall
 
+#define AUTO_TEST
+
 // global variable
 static klogger_t *klogger = NULL;
+
+#ifdef AUTO_TEST
+extern void deinit_auto_test();
+extern int init_auto_test(klogger_t *klogger);
+#endif
 
 /*
  *  Undocument function 
@@ -49,6 +56,16 @@ NTSTATUS DriverUnload(IN PDRIVER_OBJECT pDriverObject)
 		return STATUS_SUCCESS;
 	}
 
+	// The KeFlushQueuedDpcs routine returns 
+	// after all queued DPCs on all processors have executed
+	KeFlushQueuedDpcs();
+
+	// 2.
+#ifdef AUTO_TEST
+	deinit_auto_test();
+#endif
+
+	// 3.
 	if (deinit_klogger(klogger) < 0) {
 		PRINT("[DriverUnload]: Problems with driver unloading\n");
 		PRINT("[DriverUnload]: deinit_klogger() returns a value which is < 0\n");
@@ -93,8 +110,9 @@ NTSTATUS STDCALL DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pusRe
 	}
 	pDriverObject->DriverUnload = DriverUnload;
 
-	// ONLY FOR TEST! TODO: REMOVE IT!
-	add_to_rbuf(klogger, "Hello, world!");
+#ifdef AUTO_TEST
+	init_auto_test(klogger);
+#endif
 
 	PRINT("[DriverEntry]: add to rbuf : Hello, world!");
 	PRINT("[DriverEntry]: success\n");

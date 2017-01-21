@@ -196,6 +196,7 @@
     <FilesToPackage Include="@(Inf->'%(CopyOutput)')" Condition="'@(Inf)'!=''" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="autotest.c" />
     <ClCompile Include="driver.c" />
     <ClCompile Include="klogger.c" />
     <ClCompile Include="ring_buffer.c" />
