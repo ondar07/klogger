@@ -10,6 +10,8 @@
 
 #include "ntddk.h"
 
+// BUF_SIZE 1 Kb
+#define BUF_SIZE 1024
 
 #define STDCALL __stdcall
 
@@ -40,14 +42,22 @@ NTSTATUS STDCALL DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pusRe
 
 NTSTATUS DriverUnload(IN PDRIVER_OBJECT pDriverObject)
 {
-	PRINT("%x", pDriverObject->DriverSize);
+	UNREFERENCED_PARAMETER(pDriverObject);
+
+	if (!klogger) {
+		PRINT("[DriverUnload]: klogger is NULL (it was not initialized before)\n");
+		return STATUS_SUCCESS;
+	}
 
 	if (deinit_klogger(klogger) < 0) {
-		PRINT("Problems with driver unloading");
-		// TODO: return STATUS_ ERROR
+		PRINT("[DriverUnload]: Problems with driver unloading\n");
+		PRINT("[DriverUnload]: deinit_klogger() returns a value which is < 0\n");
+		// STATUS_DRIVER_FAILED_PRIOR_UNLOAD -- The driver could not be loaded
+		// because a previous version of the driver is still in memory
+		return STATUS_DRIVER_FAILED_PRIOR_UNLOAD;
 	}
 	else {
-		PRINT("Driver Unload: success");
+		PRINT("[DriverUnload]: success\n");
 	}
 	return STATUS_SUCCESS;
 }
@@ -62,11 +72,13 @@ NTSTATUS DriverUnload(IN PDRIVER_OBJECT pDriverObject)
  */
 NTSTATUS STDCALL DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pusRegPath)
 {
-	NTSTATUS Status;
+	NTSTATUS Status = STATUS_SUCCESS;
+#if 0
 	HANDLE hEvent;
 	OBJECT_ATTRIBUTES oa;
 	UNICODE_STRING us;
 	PVOID pEvent;
+#endif
 
 	UNREFERENCED_PARAMETER(pDriverObject);
 	UNREFERENCED_PARAMETER(pusRegPath);
@@ -74,63 +86,19 @@ NTSTATUS STDCALL DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pusRe
 	//__debugbreak();
 
 	// init klogger
-	klogger = init_klogger();
+	klogger = init_klogger(BUF_SIZE);
 	if (NULL == klogger) {
-		// TODO
-		;
+		Status = STATUS_FAILED_DRIVER_ENTRY;
+		PRINT("ERROR [DriverEntry]: init_klogger returns NULL\n");
 	}
 	pDriverObject->DriverUnload = DriverUnload;
 
-	/*
-	 *	FUTURE: 
-	 *		creating device and symbolic link
-	 *		initialize driver functions
-	 *		making this driver unloadable
-	 */
+	// ONLY FOR TEST! TODO: REMOVE IT!
+	add_to_rbuf(klogger, "Hello, world!");
+
+	PRINT("[DriverEntry]: add to rbuf : Hello, world!");
+	PRINT("[DriverEntry]: success\n");
 	
-	RtlInitUnicodeString(
-		&us,
-		L"\\BaseNamedObjects\\TestEvent");
-
-	InitializeObjectAttributes(
-		&oa,
-		&us,  			//ObjectName
-		OBJ_CASE_INSENSITIVE, 	//Attributes
-		NULL,			//RootDirectory
-		NULL);			//SecurityDescriptor
-
-      	Status = ZwCreateEvent(&hEvent,EVENT_ALL_ACCESS,&oa,
-		NotificationEvent,FALSE);
-
-	if (!NT_SUCCESS(Status)) {
-		DbgPrint("Failed to create event \n");
-		return Status;
-	}
-
-	Status = ObReferenceObjectByHandle(
-		hEvent, 		//Handle
-		EVENT_ALL_ACCESS,	//DesiredAccess
-		NULL,			//ObjectType
-		KernelMode,		//AccessMode
-		&pEvent,		//Object
-		NULL);			//HandleInformation
-
-	if (!NT_SUCCESS(Status)) {
-		ZwClose(hEvent);
-		DbgPrint("Failed to reference event \n");
-		return Status;
-	}
-		
-	Status = KeWaitForSingleObject(
-		pEvent,  		//Object
-		Executive,		//WaitReason
-		KernelMode,		//WaitMode
-		FALSE,			//Alertable
-		NULL);			//Timeout
-
-	DbgPrint("Return from wait with 0x%08X \n",Status);
-	ObDereferenceObject(pEvent);
-	ZwClose(hEvent);
 	return Status;
 }
 

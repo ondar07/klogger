@@ -7,7 +7,7 @@ Signature="$WINDOWS NT$"
 Class=
 ClassGuid=
 Provider=
-DriverVer=11/16/2016,22.24.47.665
+DriverVer=01/21/2017,12.49.31.831
 CatalogFile=MyCatalogFile.cat
 
 [DestinationDirs]
