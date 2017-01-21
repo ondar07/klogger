@@ -73,7 +73,7 @@ rbuf_t *init_ring_buffer(rbsize_t size) {
 	}
 
 	// 2.
-	rbuf->start = (PVOID)my_alloc(sizeof(TCHAR) * size);
+	rbuf->start = (PVOID)my_alloc(sizeof(char) * size);
 	if (NULL == rbuf->start) {
 		PRINT("ERROR [init_ring_buffer]: rbuf == NULL\n");
 		goto free_rbuf;
@@ -104,7 +104,7 @@ rbuf_t *init_ring_buffer(rbsize_t size) {
 	}
 
 	// 7. fill buf with zero bytes
-	memset(rbuf->start, 0, sizeof(TCHAR) * size);
+	memset(rbuf->start, 0, sizeof(char) * size);
 
 	PRINT("[init_ring_buffer]: init_ring_buffer is successful...\n");
 	return rbuf;
@@ -122,8 +122,8 @@ free_rbuf:
 
 static int init_locks(rbuf_t *rbuf) {
 #ifdef KERNEL
-	// TODO
-	UNREFERENCED_PARAMETER(rbuf);
+	create_lock(&rbuf->free_ptr_lock);
+	create_lock(&rbuf->dirty_ptr_lock);
 	return 0;
 #else
 	if (NULL == (rbuf->free_ptr_lock = create_lock()))
@@ -140,8 +140,13 @@ error:
 }
 
 static void deinit_locks(rbuf_t *rbuf) {
+#ifdef KERNEL
+	// TODO (?)
+	UNREFERENCED_PARAMETER(rbuf);
+#else
 	destroy_lock(rbuf->free_ptr_lock);
 	destroy_lock(rbuf->dirty_ptr_lock);
+#endif
 }
 
 static int init_writers_count_parameter(rbuf_t *rbuf) {
@@ -282,16 +287,29 @@ static __inline size_t get_str_size_in_bytes(char *str) {
  */
 static PVOID get_ptr_atomically(rbuf_t *rbuf, int ptr_type) {
 	PVOID ptr;
+#ifdef KERNEL
+	PKSPIN_LOCK lock;
+	KIRQL current_irql;
+#else
 	SYNCR_PRIM lock;
+#endif
 
 #ifdef DEBUG
 	assert(rbuf);
 #endif
+
+#ifdef KERNEL
+	lock = (FREE_PTR == ptr_type) ? (&rbuf->free_ptr_lock) : (&rbuf->dirty_ptr_lock);
+	acquire_lock(lock, &current_irql);
+	ptr = (FREE_PTR == ptr_type) ? rbuf->free : rbuf->dirty;
+	// restore irql
+	release_lock(lock, current_irql);
+#else
 	lock = (FREE_PTR == ptr_type) ? rbuf->free_ptr_lock : rbuf->dirty_ptr_lock;
 	acquire_lock(lock);
 	ptr = (ptr_type == FREE_PTR) ? rbuf->free : rbuf->dirty;
 	release_lock(lock);
-
+#endif
 	return ptr;
 }
 
@@ -304,7 +322,24 @@ static PVOID get_ptr_atomically(rbuf_t *rbuf, int ptr_type) {
  */
 static PVOID set_ptr_atomically(rbuf_t *rbuf, int ptr_type, PVOID new_ptr_value) {
 	PVOID old_ptr_value;
-	SYNCR_PRIM lock = (FREE_PTR == ptr_type) ? rbuf->free_ptr_lock : rbuf->dirty_ptr_lock;
+#ifdef KERNEL
+	PKSPIN_LOCK lock;
+	KIRQL current_irql;
+#else
+	SYNCR_PRIM lock;
+#endif
+
+#ifdef KERNEL
+	lock = (FREE_PTR == ptr_type) ? (&rbuf->free_ptr_lock) : (&rbuf->dirty_ptr_lock);
+	acquire_lock(lock, &current_irql);
+	old_ptr_value = (FREE_PTR == ptr_type) ? rbuf->free : rbuf->dirty;
+	if (FREE_PTR == ptr_type)
+		rbuf->free = new_ptr_value;
+	else if (DIRTY_PTR == ptr_type)
+		rbuf->dirty = new_ptr_value;
+	release_lock(lock, current_irql);
+#else
+	lock = (FREE_PTR == ptr_type) ? rbuf->free_ptr_lock : rbuf->dirty_ptr_lock;
 
 	acquire_lock(lock);
 	old_ptr_value = (FREE_PTR == ptr_type) ? rbuf->free : rbuf->dirty;
@@ -313,6 +348,7 @@ static PVOID set_ptr_atomically(rbuf_t *rbuf, int ptr_type, PVOID new_ptr_value)
 	else if (DIRTY_PTR == ptr_type)
 		rbuf->dirty = new_ptr_value;
 	release_lock(lock);
+#endif
 
 	return old_ptr_value;
 }
@@ -486,6 +522,7 @@ int write_to_rbuf(rbuf_t *rbuf, char *str) {
 	int status = 0;
 	PVOID free, dirty, alloc_mem_end;
 	size_t str_size_in_bytes;
+	KIRQL cur_irql;
 
 	if (!str || (*str == '\0')) {
 		PRINT("ERROR [write_to_rbuf]: str == NULL\n");
@@ -501,7 +538,11 @@ int write_to_rbuf(rbuf_t *rbuf, char *str) {
 	
 	/* * * * * * * * * * * * * * * * */
 	// 1. lock free_ptr
+#ifdef KERNEL
+	acquire_lock(&rbuf->free_ptr_lock, &cur_irql);
+#else
 	acquire_lock(rbuf->free_ptr_lock);
+#endif
 	free = rbuf->free;
 	
 	// we should locate here memory barrier
@@ -519,7 +560,11 @@ int write_to_rbuf(rbuf_t *rbuf, char *str) {
 	// 2. 
 	if (can_write_into_buffer(rbuf, free, dirty, str_size_in_bytes) < 0) {
 		PRINT("Cannot write string=\"%s\" into buffer\n", str);
+#ifdef KERNEL
+		release_lock(&rbuf->free_ptr_lock, cur_irql);
+#else
 		release_lock(rbuf->free_ptr_lock);
+#endif
 		return -1;
 	}
 
@@ -532,7 +577,11 @@ int write_to_rbuf(rbuf_t *rbuf, char *str) {
 	blocks_refs_operation(rbuf, free, alloc_mem_end, INCR_OPERATION);
 
 	// 5. unlock free_ptr
+#ifdef KERNEL
+	release_lock(&rbuf->free_ptr_lock, cur_irql);
+#else
 	release_lock(rbuf->free_ptr_lock);
+#endif
 
 	/* * * * * * * * * * * * * * * * */
 

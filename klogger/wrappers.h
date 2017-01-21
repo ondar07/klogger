@@ -205,31 +205,42 @@ static void destroy_timer(KLOGGER_TIMER timer) {
 /* * * * * * * * * */
 
 #ifdef KERNEL
-typedef HANDLE SYNCR_PRIM;
+//
 #else
 typedef HANDLE SYNCR_PRIM;
 #endif
 
+#ifdef KERNEL
+static VOID create_lock(PKSPIN_LOCK SpinLock) {
+	KeInitializeSpinLock(
+		SpinLock
+	);
+}
+#else
 static SYNCR_PRIM create_lock() {
 	SYNCR_PRIM lock;
 
-#ifdef KERNEL
-	// TODO:
-	
-#else
 	// USERSPACE
 	lock = CreateMutex(
 		NULL,              // default security attributes
 		FALSE,             // initially not owned
 		NULL);             // unnamed mutex
-#endif
 
 	return lock;
 }
+#endif
 
 #ifdef KERNEL
-// TODO:
-#define acquire_lock(lock)	;
+// KeAcquireSpinLock first resets the IRQL to DISPATCH_LEVEL 
+// and then acquires the lock.
+// The previous IRQL is written to OldIrql after the lock is acquired.
+#define acquire_lock(lock, old_irql)				\
+	do {											\
+		KeAcquireSpinLock(							\
+			lock,									\
+			old_irql								\
+			);										\
+	} while (0);
 #else
 #define acquire_lock(lock)							\
 	do {											\
@@ -247,8 +258,13 @@ static SYNCR_PRIM create_lock() {
 #endif
 
 #ifdef KERNEL
-// TODO:
-#define release_lock(lock)	;
+#define release_lock(lock, new_irql)				\
+	do {											\
+		KeReleaseSpinLock(							\
+			lock,									\
+			new_irql								\
+			);										\
+	} while (0)
 #else
 #define release_lock(lock)											\
 	do {															\
@@ -257,16 +273,16 @@ static SYNCR_PRIM create_lock() {
 		} while (0);
 #endif
 
-static void destroy_lock(SYNCR_PRIM lock) {
 #ifdef KERNEL
-	// TODO
-	UNREFERENCED_PARAMETER(lock);
-	;
+// TODO
+// nothing (this function is not used by driver)
 #else
+static void destroy_lock(SYNCR_PRIM lock) {
+
 	if (!lock)
 		return;
 	CloseHandle(lock);
-#endif
 }
+#endif
 
 #endif  // _WRAPPERS_

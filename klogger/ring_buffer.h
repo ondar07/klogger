@@ -6,6 +6,7 @@
 
 #ifdef KERNEL
 #include <Wdm.h>
+#include <Ntddk.h>
 #else
 // USERSPACE
 #include <stdio.h>
@@ -31,11 +32,19 @@ typedef struct _ring_buffer {
 	rbsize_t bufsize;		// in bytes
 
 	PVOID free;
-	SYNCR_PRIM free_ptr_lock;
 
+#ifdef KERNEL
+	KSPIN_LOCK free_ptr_lock;
+#else
+	SYNCR_PRIM free_ptr_lock;
+#endif
 
 	PVOID dirty;
-	SYNCR_PRIM dirty_ptr_lock;
+#ifdef KERNEL
+	KSPIN_LOCK dirty_ptr_lock;
+#else
+	SYNCR_PRIM free_ptr_lock;
+#endif
 
 	// array of blocks
 	block_t *blocks;
